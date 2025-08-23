@@ -1,23 +1,26 @@
-import enum
-from typing import List, Tuple, Union, overload
+from typing import List, Tuple, Dict, Union
 import pygame, uuid, sys
 from random import randint
 
-from pygame.mixer_music import play
-
 SCREEN_WIDTH = 800
 SCREEN_HEIGHT = 500
+
+CELL_DIMESIONS = 50
 FPS = 60
 
 class Body:
-    def __init__(self, width: float, height: float, x: float =0, y: float =0):
+    def __init__(self, width: float, height: float, x: float =0, y: float =0, collidable=False):
         self.__id = uuid.uuid4()
         self.__width = width
         self.__height = height
         self.__coords: pygame.Vector2 = pygame.Vector2(x,y)
         self.__body = pygame.Rect(x,y, width, height);
         self.__color: Tuple[int, int, int] = (randint(55, 255), randint(55, 255),randint(55, 255))
+        self.__collidable = collidable
+        self.__previous_coords: pygame.Vector2 = self.__coords
         ...
+    def is_collidable(self) -> bool:
+        return self.__collidable
 
     def get_id(self):
         return self.__id
@@ -43,35 +46,72 @@ class Body:
 
     def set_body(self, new_value: pygame.Rect):
         self.__body = new_value
-        self.__coords = pygame.Vector2(self.__body.center)
+        self.__coords = pygame.Vector2(self.__body.topleft)
 
     def set_color(self, new_value: Tuple[int,int,int]):
         self.__color = new_value
 
-    def _move(self, x: Union[float, None] = None, y: Union[float, None] = None):
-        if x is not None:
-            self.__coords.x = x
-        if y is not None:
-            self.__coords.y = y
-        self.update_body()
 
-    def _move_v(self, new_coords: pygame.Vector2):
+    def check_against_collidables(self, new_coords:pygame.Vector2, collidables) -> List[Tuple[object,bool, bool]]:
+        return check_against_collidables(self, new_coords, collidables)
+
+    def _move(self, x: Union[float, None] = None, y: Union[float, None] = None, collidables: List[object] = []):
+        new_coords = pygame.Vector2(self.__coords)
+        if x is not None:
+            new_coords.x = x
+        if y is not None:
+            new_coords.y = y
+        self.check_against_collidables(new_coords, collidables)
+
         self.__coords = new_coords
         self.update_body()
 
-    def _translate(self, dx: Union[float, None] = None, dy: Union[float, None] = None):
-        if dx is not None:
-            self.__coords.x += dx
-        if dy is not None:
-            self.__coords.y += dy
+    def _move_v(self, new_coords: pygame.Vector2, collidables: List[object] = []):
+        self._move(new_coords.x, new_coords.y, collidables)
         self.update_body()
 
-    def _translate_v(self, delta: pygame.Vector2):
-        self.__coords += delta
+    def _translate(self, dx: Union[float, None] = None, dy: Union[float, None] = None, collidables: List[object] = []):
+        new_coords = pygame.Vector2(self.__coords)
+        if dx is not None:
+            new_coords.x += dx
+        if dy is not None:
+            new_coords.y += dy
+        self.check_against_collidables(new_coords, collidables)
+
+        self.__coords = new_coords
+        self.update_body()
+
+    def _translate_v(self, delta: pygame.Vector2, collidables: List[object] = []):
+        self._translate(delta.x, delta.y, collidables)
         self.update_body()
     def update_body(self):
-        self.__body.center = (int(self.__coords.x), int(self.__coords.y))
+        self.__body.topleft = (int(self.__coords.x), int(self.__coords.y))
 
+    def draw(self, screen:pygame.Surface, camera):
+        pygame.draw.rect(screen, self.get_color(), camera.apply(self.get_body()))
+
+class Camera:
+    def __init__(self, screen_width: int, screen_height: int):
+        # Camera offset (what gets applied to world coords to map to screen coords)
+        self.offset = pygame.Vector2(0, 0)
+        self.screen_width = screen_width
+        self.screen_height = screen_height
+
+    def update(self, target: Body):
+        """
+        Update camera offset based on target (usually the player).
+        Centers the target on the screen.
+        """
+        # Center the camera on the target
+        target_coords = target.get_coords()
+        self.offset.x = target_coords.x - self.screen_width // 2
+        self.offset.y = target_coords.y - self.screen_height // 2
+
+    def apply(self, rect: pygame.Rect) -> pygame.Rect:
+        """
+        Return a new rect shifted by the camera offset for drawing.
+        """
+        return rect.copy().move(-self.offset.x, -self.offset.y)
 
 class Entity(Body):
     def __init__(self, health:float = 300, attack: float = 300):
@@ -80,14 +120,14 @@ class Entity(Body):
         self.__health: float = health
         self.__attack: float = attack
 
-    def move(self, dx: Union[float, None] = None, dy: Union[float, None] = None, dt: Union[float, None] = None):
+    def move(self, dx: Union[float, None] = None, dy: Union[float, None] = None, dt: Union[float, None] = None, collidables:List[object]=[]):
         if dt is not None:
             if dx is not None: dx *= self.__speed * dt
             if dy is not None: dy *= self.__speed * dt
         else:
             if dx is not None: dx *= self.__speed
             if dy is not None: dy *= self.__speed
-        super()._translate(dx, dy)
+        super()._translate(dx, dy, collidables)
 
 
 global_item_count = 0
@@ -123,29 +163,24 @@ class Sword(Weapon):
         ...
 
 
-class Camera:
-    def __init__(self, screen_width: int, screen_height: int):
-        # Camera offset (what gets applied to world coords to map to screen coords)
-        self.offset = pygame.Vector2(0, 0)
-        self.screen_width = screen_width
-        self.screen_height = screen_height
 
-    def update(self, target: Body):
-        """
-        Update camera offset based on target (usually the player).
-        Centers the target on the screen.
-        """
-        # Center the camera on the target
-        target_coords = target.get_coords()
-        self.offset.x = target_coords.x - self.screen_width // 2
-        self.offset.y = target_coords.y - self.screen_height // 2
+class Wall(Body):
+    def __init__(self, x, y) -> None:
+        super().__init__(CELL_DIMESIONS,CELL_DIMESIONS, x, y, collidable=True)
+        self.set_color((0xff,0xff,0xff))
 
-    def apply(self, rect: pygame.Rect) -> pygame.Rect:
-        """
-        Return a new rect shifted by the camera offset for drawing.
-        """
-        return rect.copy().move(-self.offset.x, -self.offset.y)
+class World:
+    def __init__(self) -> None:
+        self.__walls: List[Wall] = []
+        self.__entities: List[Entity] = []
+    def add_wall(self, wall: Wall):
+        self.__walls.append(wall)
 
+    def add_entity(self, entity: Entity):
+        self.__entities.append(entity)
+    def get_collidables(self) -> List[Body]:
+        # Return all solid objects
+        return [w for w in self.__walls if w.is_collidable()]
 
 class Player(Entity):
     def __init__(self):
@@ -194,10 +229,34 @@ class Player(Entity):
 
 
 
+def check_against_collidables(this: Body, new_coords:pygame.Vector2, collidables: List[Body]):
+    new_rect = pygame.Rect(new_coords, pygame.Vector2(this.get_body().size))
+    old_coords = this.get_coords()
+
+    colliding = []
+    # print(len(collidables))
+    x, x_object = 0, object()
+    y, y_object = 0, object()
+    # use this_body as this_bodies rect dimenstions. use new_coords as coords as
+    # this_body has old coords to be updated
+    this_body = this.get_body()
+    for other in collidables:
+        other_body = other.get_body()
+        if other_body.x < new_coords.x + this_body.width and new_coords.x < other_body.x + other_body.width:
+            # check collision from this going left
+            b = other_body.x + other_body.width
+            if b > new_coords.x:
+                x = b
+            # check collision from this going right
+            elif new_coords.x + this_body.w > other_body.x:
+                x = other_body.x - this_body.w
+            
+
+    return [(object(),False,False)]
 
 def sort_bodies(bodies: list[Body]) -> list[Body]:
-    for b in bodies:
-        print(f"{b.get_id}: {b.get_coords().y}, {b.get_body().y}")
+    # for b in bodies:
+    #     print(f"{b.get_id}: {b.get_coords().y}, {b.get_body().y}")
     return sorted(bodies, key=lambda b: b.get_coords().y)
 
 if __name__ == "__main__":
@@ -208,12 +267,18 @@ if __name__ == "__main__":
     clock = pygame.time.Clock()
 
 
-    bodies: List[Body] = [player, Body(30, 30, 200,200)]
+    bodies: Dict[str,Body] = {
+        "player":player,
+        "body_1": Body(30, 30, 200,200, collidable=True),
+        "wall_1":Wall(500,500),
+        "wall_2":Wall(430,500),
+    }
 
     running = True
     cam = Camera(SCREEN_WIDTH, SCREEN_HEIGHT)
 
     while running:
+        print("new render")
         dt = clock.tick(FPS) / 1000  # Get time passed in seconds (convert ms to seconds)
         for event in pygame.event.get():
             if event.type == pygame.QUIT:
@@ -232,15 +297,16 @@ if __name__ == "__main__":
         if keys[pygame.K_s]:
             p_direction.y += 1
         if p_direction.magnitude() > 0:p_direction = p_direction.normalize()
-        player.move(p_direction.x, p_direction.y, dt)
+        player.move(p_direction.x, p_direction.y, dt, collidables=[bodies["body_1"], bodies["wall_1"], bodies["wall_2"]])
         player.update()
         cam.update(player)
 
 
         screen.fill((0,0,0))
-        bodies = sort_bodies(bodies)
-        for e in bodies:
-            pygame.draw.rect(screen, e.get_color(), cam.apply(e.get_body()))
+        bodies_draw = sort_bodies([v for _,v in bodies.items()])
+        for e in bodies_draw:
+            e.draw(screen, cam);
+            # pygame.draw.rect(screen, e.get_color(), cam.apply(e.get_body()))
 
         pygame.display.flip()
     pygame.quit()
