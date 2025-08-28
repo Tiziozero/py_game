@@ -52,7 +52,7 @@ class Body:
         self.__color = new_value
 
 
-    def check_against_collidables(self, new_coords:pygame.Vector2, collidables) -> List[Tuple[object,bool, bool]]:
+    def check_against_collidables(self, new_coords:pygame.Vector2, collidables):
         return check_against_collidables(self, new_coords, collidables)
 
     def _move(self, x: Union[float, None] = None, y: Union[float, None] = None, collidables: List[object] = []):
@@ -61,14 +61,17 @@ class Body:
             new_coords.x = x
         if y is not None:
             new_coords.y = y
-        self.check_against_collidables(new_coords, collidables)
+        new_new_coordsx, new_new_coordsy, _ = self.check_against_collidables(new_coords, collidables)
 
-        self.__coords = new_coords
+        """ print(
+            f"new coords      : {int(new_coords.x): >3}:{int(new_coords.y): >3}\n"
+            f"acc new coords  : {int(new_new_coordsx): >3}:{int(new_new_coordsy): >3}\n"
+            f"dx/dy           : {int(new_new_coordsx-new_coords.x): >3}:{int(new_new_coordsy-new_coords.y): >3}") """
+        self.__coords = pygame.Vector2(new_new_coordsx, new_new_coordsy)
         self.update_body()
 
     def _move_v(self, new_coords: pygame.Vector2, collidables: List[object] = []):
         self._move(new_coords.x, new_coords.y, collidables)
-        self.update_body()
 
     def _translate(self, dx: Union[float, None] = None, dy: Union[float, None] = None, collidables: List[object] = []):
         new_coords = pygame.Vector2(self.__coords)
@@ -76,14 +79,10 @@ class Body:
             new_coords.x += dx
         if dy is not None:
             new_coords.y += dy
-        self.check_against_collidables(new_coords, collidables)
-
-        self.__coords = new_coords
-        self.update_body()
+        self._move_v(new_coords, collidables)
 
     def _translate_v(self, delta: pygame.Vector2, collidables: List[object] = []):
         self._translate(delta.x, delta.y, collidables)
-        self.update_body()
     def update_body(self):
         self.__body.topleft = (int(self.__coords.x), int(self.__coords.y))
 
@@ -230,33 +229,47 @@ class Player(Entity):
 
 
 def check_against_collidables(this: Body, new_coords:pygame.Vector2, collidables: List[Body]):
-    new_rect = pygame.Rect(new_coords, pygame.Vector2(this.get_body().size))
     old_coords = this.get_coords()
+    this_body = this.get_body()
+    x_out = new_coords.x
+    y_out = new_coords.y
 
-    colliding = []
-    # print(len(collidables))
-    x, x_object = 0, object()
-    y, y_object = 0, object()
     # use this_body as this_bodies rect dimenstions. use new_coords as coords as
     # this_body has old coords to be updated
-    this_body = this.get_body()
+    collided = []
     for other in collidables:
         other_body = other.get_body()
-        if other_body.x < new_coords.x + this_body.width and new_coords.x < other_body.x + other_body.width:
+        # check if it was overlapping in certain dirrection
+        was_overlapping_x = False
+        was_overlapping_y = False
+        if other_body.x < old_coords.x + this_body.width and old_coords.x < other_body.x + other_body.width:
+            was_overlapping_x = True
+        if other_body.y < old_coords.y + this_body.height and old_coords.y < other_body.y + other_body.height:
+            was_overlapping_y = True
+            ...
+        collision = False
+        # check if they overlap in horizontally
+        if other_body.x < new_coords.x + this_body.width and new_coords.x < other_body.x + other_body.width and was_overlapping_y:
             # check collision from this going left
             b = other_body.x + other_body.width
-            if b > new_coords.x:
-                x = b
-            # check collision from this going right
-            elif new_coords.x + this_body.w > other_body.x:
-                x = other_body.x - this_body.w
-            
+            if this_body.centerx < other_body.centerx:
+                x_out = other_body.x - this_body.width
+            elif this_body.centerx > other_body.centerx:
+                x_out = b
+            collision = True
+        # check if they overlap in vertically
+        if other_body.y < new_coords.y + this_body.height and new_coords.y < other_body.y + other_body.height and was_overlapping_x:
+            b = other_body.y + other_body.height
+            if this_body.centery < other_body.centery:
+                y_out = other_body.y - this_body.height
+            elif this_body.centery > other_body.centery:
+                y_out = b
+            collision = True
+        if collision == True: collided.append(other)
 
-    return [(object(),False,False)]
+    return x_out,y_out, collided
 
 def sort_bodies(bodies: list[Body]) -> list[Body]:
-    # for b in bodies:
-    #     print(f"{b.get_id}: {b.get_coords().y}, {b.get_body().y}")
     return sorted(bodies, key=lambda b: b.get_coords().y)
 
 if __name__ == "__main__":
@@ -269,16 +282,16 @@ if __name__ == "__main__":
 
     bodies: Dict[str,Body] = {
         "player":player,
-        "body_1": Body(30, 30, 200,200, collidable=True),
-        "wall_1":Wall(500,500),
-        "wall_2":Wall(430,500),
     }
+    for _ in range(10):
+        wall = Wall(randint(-500, 500), randint(-500, 500))
+        bodies[str(wall.get_id())] = wall
+        
 
     running = True
     cam = Camera(SCREEN_WIDTH, SCREEN_HEIGHT)
 
     while running:
-        print("new render")
         dt = clock.tick(FPS) / 1000  # Get time passed in seconds (convert ms to seconds)
         for event in pygame.event.get():
             if event.type == pygame.QUIT:
@@ -297,7 +310,7 @@ if __name__ == "__main__":
         if keys[pygame.K_s]:
             p_direction.y += 1
         if p_direction.magnitude() > 0:p_direction = p_direction.normalize()
-        player.move(p_direction.x, p_direction.y, dt, collidables=[bodies["body_1"], bodies["wall_1"], bodies["wall_2"]])
+        player.move(p_direction.x, p_direction.y, dt, collidables=list(bodies.values()))
         player.update()
         cam.update(player)
 

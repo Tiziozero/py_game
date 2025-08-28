@@ -1,1 +1,24 @@
-my idea was to have like if the new coords would end up inside the wall send it back a bit like this for other in collidables: other_body = other.get_body() if other_body.x < new_coords.x + this_body.width and new_coords.x < other_body.x + other_body.width: # check collision from this going left b = other_body.x + other_body.width if b > new_coords.x: x = b # check collision from this going right elif new_coords.x + this_body.w > other_body.x: x = other_body.x - this_body.w however, if it collides, i'd do this for both x and y dirrections since if it collides with it i'd have to overlap both x and y. so my thought was to send it back to the dirrection it wasn't overlapping before it overlaps,so for example if the object was moving right into a wall, it would've been overlapping only in the y axis, not x. so i save that in a previous position, and when i see that the oject and wall are overlapping, i check and see that it wasn't overlap
+my idea was to have like if the new coords would end up inside the wall send it back a bit like this for other in collidables:
+other_body = other.get_body()
+if other_body.x < new_coords.x + this_body.width and new_coords.x < other_body.x + other_body.width:
+    # check collision from this going left
+    b = other_body.x + other_body.width
+    if b > new_coords.x: x = b
+    # check collision from this going right
+    elif new_coords.x + this_body.w > other_body.x: x = other_body.x - this_body.w
+
+however, if it collides, i'd do this for both x and y dirrections since if it collides with it i'd have to overlap both x and y.
+
+so my thought was to send it back to the dirrection it wasn't overlapping
+before it overlaps so for example if the object was moving right into a wall,
+it would've been overlapping only in the y axis, not x. so i save that in a
+previous position, and when i see that the oject and wall are overlapping,
+i check and see that it wasn't overlap
+
+
+
+todo:
+collision wortks, but sends player to right of collidable.
+make it so that it checks wether the plauyer (before collision)
+was on the left or right side.
+then implement for vertical axis too.
