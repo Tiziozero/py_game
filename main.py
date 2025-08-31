@@ -1,6 +1,8 @@
+import threading
 from typing import List, Tuple, Dict, Union
-import pygame, uuid, sys
+import pygame, uuid, sys, math
 from random import randint
+import client
 
 SCREEN_WIDTH = 800
 SCREEN_HEIGHT = 500
@@ -144,9 +146,14 @@ class Item(Interactable):
         print("New Item:", self.__id);
     def copy(self):
         return Item(id=self.__id)
+
     def drop(self):
         print(f"Dropped Item: {self.__id}")
         ...
+
+    def action(self, *args, **kwargs):
+        ...
+
     def __repr__(self) -> str:
         return f"Item: {self.__id}"
 
@@ -159,9 +166,10 @@ class Sword(Weapon):
     def __init__(self) -> None:
         super().__init__()
     def attack(self, *args, **kwargs):
-        ...
-
-
+        p_direction = kwargs.get("direction", None)
+        if p_direction is None:
+            raise Exception("no direction provided")
+        # math.atan();
 
 class Wall(Body):
     def __init__(self, x, y) -> None:
@@ -272,12 +280,20 @@ def check_against_collidables(this: Body, new_coords:pygame.Vector2, collidables
 def sort_bodies(bodies: list[Body]) -> list[Body]:
     return sorted(bodies, key=lambda b: b.get_coords().y)
 
+def handle_incoming_data(datasender:client.DataSender):
+    while datasender.open:
+        try:
+            datasender.data_getter()
+            ...
+        except Exception as e:
+            ...
 if __name__ == "__main__":
     pygame.init()
     player = Player()
     screen = pygame.display.set_mode((SCREEN_WIDTH, SCREEN_HEIGHT))
     pygame.display.set_caption("Game")
     clock = pygame.time.Clock()
+    datasender = client.DataSender(randint(0,66994))
 
 
     bodies: Dict[str,Body] = {
@@ -290,7 +306,8 @@ if __name__ == "__main__":
 
     running = True
     cam = Camera(SCREEN_WIDTH, SCREEN_HEIGHT)
-
+    getter_thread = threading.Thread(target=handle_incoming_data, args=[datasender,])
+    getter_thread.start()
     while running:
         dt = clock.tick(FPS) / 1000  # Get time passed in seconds (convert ms to seconds)
         for event in pygame.event.get():
@@ -312,15 +329,22 @@ if __name__ == "__main__":
         if p_direction.magnitude() > 0:p_direction = p_direction.normalize()
         player.move(p_direction.x, p_direction.y, dt, collidables=list(bodies.values()))
         player.update()
+        datasender.send_data(player.get_coords()[0], player.get_coords()[1])
         cam.update(player)
+
 
 
         screen.fill((0,0,0))
         bodies_draw = sort_bodies([v for _,v in bodies.items()])
+        with datasender.client_lock:
+            for _,v in datasender.clients.items():
+                pygame.draw.rect(screen, (0x88, 0x22, 0xcc), cam.apply(pygame.Rect(v.x, v.y,40,40)))
         for e in bodies_draw:
             e.draw(screen, cam);
             # pygame.draw.rect(screen, e.get_color(), cam.apply(e.get_body()))
 
         pygame.display.flip()
+    datasender.open = False
+    getter_thread.join()
     pygame.quit()
     sys.exit()
